@@ -1,0 +1,75 @@
+- name: Install Java 1.8.0 and wget
+  yum:
+    name:
+      - java-1.8.0-openjdk.x86_64
+      - wget
+    state: present
+
+- name: Create Nexus installation directory
+  file:
+    path: "{{ nexus_install_dir }}"
+    state: directory
+    mode: '0755'
+
+- name: Create temporary directory for Nexus download
+  file:
+    path: "/tmp/nexus"
+    state: directory
+    mode: '0755'
+
+- name: Download Nexus
+  get_url:
+    url: "https://download.sonatype.com/nexus/3/nexus-3.41.0-01-unix.tar.gz"
+    dest: "/tmp/nexus/nexus.tar.gz"
+    timeout: 60
+  register: download
+
+- name: Extract Nexus
+  unarchive:
+    src: "/tmp/nexus/nexus.tar.gz"
+    dest: "{{ nexus_install_dir }}"
+    remote_src: yes
+  when: download is changed
+
+- name: Add Nexus user
+  user:
+    name: "{{ nexus_user }}"
+    system: yes
+    createhome: no
+
+- name: Change ownership of Nexus installation directory
+  file:
+    path: "{{ nexus_install_dir }}"
+    owner: "{{ nexus_user }}"
+    group: "{{ nexus_user }}"
+    recurse: yes
+
+- name: Create Nexus service file
+  ansible.builtin.template:
+    src: nexus.service.j2
+    dest: /etc/systemd/system/nexus.service
+    mode: '0644'
+
+#- name: Debug Nexus directory path
+#  ansible.builtin.debug:
+#    msg: "{{ nexus_install_dir }}/{{ nexus_dir_name.stdout }}"
+#
+#- name: Find Nexus directory name
+#  ansible.builtin.shell: ls "{{ nexus_install_dir }}" | grep 'nexus-' | head -n 1
+#  register: nexus_dir_name
+#  changed_when: false
+
+- name: Set run_as_user in nexus.rc
+  ansible.builtin.lineinfile:
+    path: "{{ nexus_install_dir }}//nexus-3.41.0-01/bin/nexus.rc"
+    line: 'run_as_user="{{ nexus_user }}"'
+
+- name: Reload systemd
+  ansible.builtin.systemd:
+    daemon_reload: yes
+
+- name: Enable and start Nexus
+  ansible.builtin.service:
+    name: nexus
+    enabled: yes
+    state: started

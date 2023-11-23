@@ -1,0 +1,3 @@
+nexus_version: "latest"  # Replace with a specific version if necessary
+nexus_install_dir: "/opt/nexus"
+nexus_user: "nexus"

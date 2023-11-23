@@ -1,0 +1,39 @@
+- name: Update apt cache
+  ansible.builtin.apt:
+    update_cache: yes
+    cache_valid_time: 3600
+
+- name: Install OpenJDK 11
+  ansible.builtin.apt:
+    name: openjdk-11-jdk
+    state: present
+
+- name: Install Maven
+  ansible.builtin.apt:
+    name: maven
+    state: present
+
+- name: Add Jenkins key
+  get_url:
+    url: https://pkg.jenkins.io/debian-stable/jenkins.io-2023.key
+    dest: /usr/share/keyrings/jenkins-keyring.asc
+
+- name: Add Jenkins repo
+  shell: 
+    cmd: |
+      echo deb [signed-by=/usr/share/keyrings/jenkins-keyring.asc] https://pkg.jenkins.io/debian-stable binary/ > /etc/apt/sources.list.d/jenkins.list
+
+- name: Ensure APT is Installed
+  apt:
+    update_cache: yes
+
+- name: install jenkins
+  apt:
+    name: jenkins
+    state: present
+
+- name: Ensure jenkins is enabled
+  service:
+    name: jenkins
+    state: started
+    enabled: yes

@@ -1,0 +1,236 @@
+- name: Backup sysctl.conf
+  ansible.builtin.copy:
+    src: /etc/sysctl.conf
+    dest: /root/sysctl.conf_backup
+
+- name: Configure sysctl
+  ansible.builtin.template:
+    src: sysctl.conf.j2
+    dest: /etc/sysctl.conf
+
+- name: Backup limits.conf
+  ansible.builtin.copy:
+    src: /etc/security/limits.conf
+    dest: /root/sec_limit.conf_backup
+
+- name: Configure limits.conf
+  ansible.builtin.template:
+    src: limits.conf.j2
+    dest: /etc/security/limits.conf
+
+- name: Update package cache
+  ansible.builtin.apt:
+    update_cache: yes
+
+- name: Install OpenJDK 11
+  ansible.builtin.apt:
+    name: openjdk-11-jdk
+    state: present
+
+- name: Configure Java alternatives
+  ansible.builtin.command: update-alternatives --config java
+  ignore_errors: yes
+
+- name: Check Java version
+  ansible.builtin.command: java -version
+  ignore_errors: yes
+
+- name: Ensure gpg is installed
+  apt:
+    name: gpg
+
+#- name: Download PostgreSQL GPG key
+#  ansible.builtin.get_url:
+#    url: https://www.postgresql.org/media/keys/ACCC4CF8.asc
+#    dest: /tmp/postgresql-gpg-key.asc
+
+- name: Add repository signing key
+  apt_key:
+    url: "https://www.postgresql.org/media/keys/ACCC4CF8.asc"
+    state: present
+    
+- name: Add postgresql repository
+  apt_repository:
+    repo: "deb https://apt.postgresql.org/pub/repos/apt/ {{ ansible_distribution_release }}-pgdg main"
+    state: present
+    filename: pgdg
+
+- name: Install psycopg2
+  ansible.builtin.apt:
+    name: python3-psycopg2
+    state: present
+
+- name: Install PostgreSQL
+  ansible.builtin.apt:
+    name:
+      - postgresql
+      - postgresql-contrib
+    state: present
+
+- name: Enable and start PostgreSQL service
+  ansible.builtin.service:
+    name: postgresql
+    state: started
+    enabled: yes
+
+- name: Set PostgreSQL password
+  ansible.builtin.command: echo "postgres:admin123" | chpasswd
+
+- name: Create PostgreSQL user 'sonar'
+  postgresql_user:
+    name: sonar
+    state: present
+  become: true
+  become_user: postgres    
+
+- name: Set password for PostgreSQL user 'sonar'
+  postgresql_user:
+    name: sonar
+    password: 'admin123'
+    encrypted: yes
+  become: true
+  become_user: postgres     
+
+- name: Create 'sonarqube' database
+  postgresql_db:
+    name: sonarqube
+    owner: sonar
+    state: present
+  become: true
+  become_user: postgres     
+
+- name: Grant all privileges on 'sonarqube' database to user 'sonar'
+  postgresql_privs:
+    db: sonarqube
+    role: sonar
+    objs: ALL_IN_SCHEMA
+    privs: ALL
+  become: true
+  become_user: postgres    
+
+- name: Restart PostgreSQL service
+  service:
+    name: postgresql
+    state: restarted
+
+- name: Install pnet-tool
+  ansible.builtin.apt:
+    name: net-tools
+    state: present
+
+- name: Check if PostgreSQL is listening on network ports
+  command: netstat -tulpena | grep postgres
+  register: netstat_output
+  changed_when: false
+
+- debug:
+    msg: "{{ netstat_output.stdout_lines }}"
+
+- name: Create SonarQube directory
+  ansible.builtin.file:
+    path: /sonarqube/
+    state: directory
+
+- name: Download SonarQube
+  ansible.builtin.get_url:
+    url: https://binaries.sonarsource.com/Distribution/sonarqube/sonarqube-8.3.0.34182.zip
+    dest: /sonarqube/sonarqube-8.3.0.34182.zip
+
+- name: Install unzip
+  ansible.builtin.apt:
+    name: unzip
+    state: present
+
+- name: Extract SonarQube
+  ansible.builtin.unarchive:
+    src: /sonarqube/sonarqube-8.3.0.34182.zip
+    dest: /opt/
+    remote_src: yes
+
+- name: Rename SonarQube directory
+  ansible.builtin.command: mv /opt/sonarqube-8.3.0.34182/ /opt/sonarqube
+  ignore_errors: yes
+
+- name: Create SonarQube user and group
+  ansible.builtin.group:
+    name: sonar
+  ignore_errors: yes
+
+- name: Create SonarQube user
+  ansible.builtin.user:
+    name: sonar
+    group: sonar
+    home: /opt/sonarqube
+    system: yes
+
+- name: Set permissions for SonarQube
+  ansible.builtin.file:
+    path: /opt/sonarqube
+    owner: sonar
+    group: sonar
+    recurse: yes
+
+- name: Backup sonar.properties
+  ansible.builtin.copy:
+    src: /opt/sonarqube/conf/sonar.properties
+    dest: /root/sonar.properties_backup
+    remote_src: yes
+
+- name: Configure sonar.properties
+  ansible.builtin.template:
+    src: sonar.properties.j2
+    dest: /opt/sonarqube/conf/sonar.properties
+
+- name: Create SonarQube systemd service
+  ansible.builtin.template:
+    src: sonarqube.service.j2
+    dest: /etc/systemd/system/sonarqube.service
+
+- name: Reload systemd
+  ansible.builtin.systemd:
+    daemon_reload: yes
+
+- name: Enable and start SonarQube service
+  ansible.builtin.service:
+    name: sonarqube
+    enabled: yes
+    state: started
+
+- name: Install Nginx
+  ansible.builtin.apt:
+    name: nginx
+    state: present
+
+- name: Remove default Nginx site
+  ansible.builtin.file:
+    path: "/etc/nginx/sites-enabled/default"
+    state: absent
+
+- name: Configure Nginx for SonarQube
+  ansible.builtin.template:
+    src: nginx-sonarqube.conf.j2
+    dest: /etc/nginx/sites-available/sonarqube
+
+- name: Create symlink for Nginx site
+  ansible.builtin.file:
+    src: "/etc/nginx/sites-available/sonarqube"
+    dest: "/etc/nginx/sites-enabled/sonarqube"
+    state: link
+
+- name: Enable and restart Nginx
+  ansible.builtin.service:
+    name: nginx
+    enabled: yes
+    state: restarted
+
+- name: Allow necessary ports through UFW
+  ansible.builtin.ufw:
+    rule: allow
+    port: "{{ item }}"
+  with_items:
+    - 80
+    - 9000
+    - 9001
+
+- name: Reboot system
+  ansible.builtin.command: shutdown -r +1
