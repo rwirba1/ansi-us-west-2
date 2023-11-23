@@ -1,9 +1,9 @@
 ---
-- name: Jenkins Provisioning Ubuntu
-  hosts: jenkins
-  become: yes
-  roles:
-    - jenkins_install
+#- name: Jenkins Provisioning Ubuntu
+# hosts: jenkins
+#  become: yes
+#  #roles:
+#    - jenkins_install
 
 - name: Sonarqube Provisioning Ubuntu
   hosts: sonar
